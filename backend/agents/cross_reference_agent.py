@@ -47,8 +47,12 @@ Respond ONLY with valid JSON:
 """
         response = self.model.generate_content(prompt)
         raw = response.text.strip()
-        raw = re.sub(r'^```json\s*', '', raw)
-        raw = re.sub(r'\s*```$', '', raw)
+        
+        # Robust JSON extraction
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if json_match:
+            raw = json_match.group(0)
+            
         try:
             return json.loads(raw).get("cross_references", [])
         except:

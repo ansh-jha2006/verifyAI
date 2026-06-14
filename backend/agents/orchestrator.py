@@ -26,11 +26,10 @@ class InvestigationOrchestrator:
         self.credibility_scorer = CredibilityScorer()
         self.verdict_agent = VerdictAgent()
 
-    def _sse_event(self, agent: str, status: str, message: str, data: dict = None) -> str:
-        payload = {"agent": agent, "status": status, "message": message, "data": data or {}}
-        return f"data: {json.dumps(payload)}\n\n"
+    def _sse_event(self, agent: str, status: str, message: str, data: dict = None) -> dict:
+        return {"agent": agent, "status": status, "message": message, "data": data or {}}
 
-    async def investigate(self, text: str) -> AsyncGenerator[str, None]:
+    async def investigate(self, text: str) -> AsyncGenerator[dict, None]:
         # Step 1: WhatsApp Detection
         yield self._sse_event("WhatsApp Detector", "thinking", "Checking if this is a WhatsApp forward...")
         await asyncio.sleep(0.3)
@@ -102,28 +101,55 @@ class InvestigationOrchestrator:
 
         # Build full result
         claims_out = []
-        per_claim = {c.get("claim_text", ""): c for c in scoring_result.get("per_claim_verdicts", [])}
-        for rc in raw_claims:
-            pcv = per_claim.get(rc.get("text", ""), {})
-            sub = [Claim(id=sc["id"], text=sc["text"]) for sc in rc.get("sub_claims", [])]
-            v = pcv.get("verdict", "UNVERIFIABLE")
+        # Create a mapping for easier lookup, normalizing text for robustness
+        per_claim = {c.get("claim_text", "").strip().lower(): c for c in scoring_result.get("per_claim_verdicts", [])}
+        
+        def to_verdict_enum(v_str: str) -> VerdictEnum:
+            if not v_str:
+                return VerdictEnum.UNVERIFIABLE
+            v_norm = v_str.strip().upper().replace(" ", "_")
             try:
-                verdict_enum = VerdictEnum(v)
-            except:
-                verdict_enum = VerdictEnum.UNVERIFIABLE
+                return VerdictEnum(v_norm)
+            except ValueError:
+                # Fallback mapping for common LLM variations
+                mapping = {
+                    "PARTIALLY_TRUE": VerdictEnum.PARTIALLY_TRUE,
+                    "PARTIALLY TRUE": VerdictEnum.PARTIALLY_TRUE,
+                    "PARTIAL_TRUE": VerdictEnum.PARTIALLY_TRUE,
+                    "MISLEADING": VerdictEnum.MISLEADING,
+                    "TRUE": VerdictEnum.TRUE,
+                    "FALSE": VerdictEnum.FALSE,
+                }
+                return mapping.get(v_norm, VerdictEnum.UNVERIFIABLE)
+
+        for rc in raw_claims:
+            rc_text = rc.get("text", "")
+            pcv = per_claim.get(rc_text.strip().lower(), {})
+            
+            # Populate sub-claims if they exist
+            sub_claims_list = []
+            for sc in rc.get("sub_claims", []):
+                # Try to find verdict for sub-claim if LLM provided it, otherwise use parent's verdict
+                sc_text = sc.get("text", "")
+                sc_pcv = per_claim.get(sc_text.strip().lower(), {})
+                sub_claims_list.append(Claim(
+                    id=sc.get("id", "sc"),
+                    text=sc_text,
+                    verdict=to_verdict_enum(sc_pcv.get("verdict") or pcv.get("verdict") or "UNVERIFIABLE"),
+                    confidence=sc_pcv.get("confidence") or pcv.get("confidence", 0.5),
+                    evidence=sc_pcv.get("evidence") or [],
+                ))
+
             claims_out.append(Claim(
                 id=rc.get("id", "c1"),
-                text=rc.get("text", ""),
-                sub_claims=sub,
-                verdict=verdict_enum,
+                text=rc_text,
+                sub_claims=sub_claims_list,
+                verdict=to_verdict_enum(pcv.get("verdict", "UNVERIFIABLE")),
                 confidence=pcv.get("confidence", 0.5),
                 evidence=pcv.get("evidence", []),
             ))
 
-        try:
-            overall_verdict = VerdictEnum(scoring_result.get("overall_verdict", "UNVERIFIABLE"))
-        except:
-            overall_verdict = VerdictEnum.UNVERIFIABLE
+        overall_verdict = to_verdict_enum(scoring_result.get("overall_verdict", "UNVERIFIABLE"))
 
         result = InvestigationResult(
             original_text=text,

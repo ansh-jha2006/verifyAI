@@ -1,11 +1,17 @@
-from fastapi import FastAPI, UploadFile, File, Form
+import os
+import sys
+
+# Add the current directory to sys.path for robust import resolution
+# This helps editors like VS Code/Cursor find nested modules in the 'backend' folder
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 from dotenv import load_dotenv
-import os
 import base64
 import asyncio
+import json
 
 load_dotenv()
 
@@ -17,7 +23,7 @@ app = FastAPI(title="VerifyAI Backend", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("FRONTEND_URL", "http://localhost:5173"), "*"],
+    allow_origins=[os.getenv("FRONTEND_URL", "http://localhost:8501"), "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,45 +42,32 @@ async def investigate_text(text: str = Form(...)):
     """Stream investigation results for a text claim via SSE."""
     async def generator():
         async for event in orchestrator.investigate(text):
-            yield event
-
-    return StreamingResponse(
-        generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        }
-    )
+            yield {"data": json.dumps(event)}
+    return EventSourceResponse(generator())
 
 
 @app.post("/investigate/url")
 async def investigate_url(url: str = Form(...)):
     """Scrape content from a URL then stream investigation."""
-    extracted_text = scrape_url_content(url)
-    
-    if extracted_text.startswith("Error scraping URL"):
-        async def error_generator():
-            import json
-            yield f"data: {json.dumps({'agent': 'URL Scraper', 'status': 'error', 'message': extracted_text})}\n\n"
-        return StreamingResponse(error_generator(), media_type="text/event-stream")
-
     async def generator():
-        import json
-        yield f"data: {json.dumps({'agent': 'URL Scraper', 'status': 'done', 'message': f'Extracted content from URL: {extracted_text[:80]}...', 'data': {'extracted_text': extracted_text}})}\n\n"
-        async for event in orchestrator.investigate(extracted_text):
-            yield event
+        # Move blocking call inside the generator
+        loop = asyncio.get_event_loop()
+        extracted_text = await loop.run_in_executor(None, scrape_url_content, url)
+        
+        if extracted_text.startswith("Error scraping URL"):
+            yield {
+                "data": json.dumps({'agent': 'URL Scraper', 'status': 'error', 'message': extracted_text})
+            }
+            return
 
-    return StreamingResponse(
-        generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
+        yield {
+            "data": json.dumps({'agent': 'URL Scraper', 'status': 'done', 'message': f'Extracted content from URL: {extracted_text[:80]}...', 'data': {'extracted_text': extracted_text}})
         }
-    )
+        
+        async for event in orchestrator.investigate(extracted_text):
+            yield {"data": json.dumps(event)}
+
+    return EventSourceResponse(generator())
 
 
 @app.post("/investigate/image")
@@ -83,21 +76,23 @@ async def investigate_image(file: UploadFile = File(...)):
     contents = await file.read()
     image_b64 = base64.b64encode(contents).decode()
 
-    api_key = os.getenv("GEMINI_API_KEY")
-    extracted_text = extract_text_from_image(image_b64, api_key)
-
     async def generator():
-        import json
-        yield f"data: {json.dumps({'agent': 'Image Extractor', 'status': 'done', 'message': f'Extracted text from image: {extracted_text[:80]}...', 'data': {'extracted_text': extracted_text}})}\n\n"
-        async for event in orchestrator.investigate(extracted_text):
-            yield event
+        api_key = os.getenv("GEMINI_API_KEY")
+        loop = asyncio.get_event_loop()
+        
+        try:
+            extracted_text = await loop.run_in_executor(None, extract_text_from_image, image_b64, api_key)
+        except Exception as e:
+            yield {
+                "data": json.dumps({'agent': 'Image Extractor', 'status': 'error', 'message': f'Error extracting text: {str(e)}'})
+            }
+            return
 
-    return StreamingResponse(
-        generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
+        yield {
+            "data": json.dumps({'agent': 'Image Extractor', 'status': 'done', 'message': f'Extracted text from image: {extracted_text[:80]}...', 'data': {'extracted_text': extracted_text}})
         }
-    )
+        
+        async for event in orchestrator.investigate(extracted_text):
+            yield {"data": json.dumps(event)}
+
+    return EventSourceResponse(generator())

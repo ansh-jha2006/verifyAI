@@ -27,12 +27,16 @@ def detect_whatsapp_forward(text: str) -> Tuple[bool, list]:
 def clean_whatsapp_text(text: str) -> str:
     """Strip WhatsApp metadata and noise from forwarded messages."""
     cleaned = text
+    # Apply patterns one by one
     for pattern in WHATSAPP_PATTERNS:
         cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE | re.MULTILINE)
+    
     # Remove excessive whitespace
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
-    cleaned = re.sub(r' {2,}', ' ', cleaned)
-    # Remove lines that are only emojis or special chars
+    cleaned = re.sub(r' +', ' ', cleaned)
+    
+    # Clean up each line but keep them if they have any content
     lines = cleaned.split('\n')
-    filtered = [l.strip() for l in lines if len(re.sub(r'[^\w\s]', '', l).strip()) > 3]
+    filtered = [l.strip() for l in lines if l.strip()]
+    
     return '\n'.join(filtered).strip()

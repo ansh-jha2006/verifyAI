@@ -41,9 +41,12 @@ Extract between 1 and 5 main claims. Be precise and factual. Do not invent claim
 """
         response = self.model.generate_content(prompt)
         raw = response.text.strip()
-        # Strip markdown code fences if present
-        raw = re.sub(r'^```json\s*', '', raw)
-        raw = re.sub(r'\s*```$', '', raw)
+        
+        # Robust JSON extraction
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if json_match:
+            raw = json_match.group(0)
+            
         try:
             data = json.loads(raw)
             return data.get("claims", [])

@@ -30,6 +30,7 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
         border-radius: 12px !important;
         color: #fff !important;
+        -webkit-backdrop-filter: blur(10px);
         backdrop-filter: blur(10px);
         transition: all 0.3s ease;
     }
@@ -63,6 +64,7 @@ st.markdown("""
         padding: 30px;
         border-left: 5px solid #6366f1;
         margin: 20px 0;
+        -webkit-backdrop-filter: blur(10px);
         backdrop-filter: blur(10px);
     }
     
@@ -107,7 +109,7 @@ if not st.session_state.initialized:
     with placeholder.container():
         st.markdown(f"""
             <div style='display: flex; flex-direction: column; align-items: center; justify-content: center; height: 80vh; animation: fadeOut 2s forwards; animation-delay: 1.5s;'>
-                <img src='data:image/png;base64,{LOGO_BASE64}' style='width: 250px; margin-bottom: 20px; animation: pulse 1.5s infinite;'>
+                <img src='data:image/png;base64,{LOGO_BASE64}' alt='VerifyAI Logo' style='width: 250px; margin-bottom: 20px; animation: pulse 1.5s infinite;'>
                 <h1 style='font-family: "Syne", sans-serif; font-size: 48px; color: #6366f1;'>VerifyAI</h1>
                 <p style='color: #9090b0; font-size: 18px;'>Loading multi-agent intelligence...</p>
             </div>
@@ -130,10 +132,10 @@ if not st.session_state.initialized:
 # --- Improved Header with Logo ---
 col_logo, col_title = st.columns([1, 4])
 with col_logo:
-    st.markdown(f"<img src='data:image/png;base64,{LOGO_BASE64}' style='width: 80px;'>", unsafe_allow_html=True)
+    st.markdown(f"<img src='data:image/png;base64,{LOGO_BASE64}' alt='VerifyAI Logo' style='width: 80px;'>", unsafe_allow_html=True)
 with col_title:
     st.title("VerifyAI")
-    st.subheader("Autonomous multi-agent investigator.")
+    st.subheader("Autonomous multi-agent intelligence.")
 
 
 
@@ -211,7 +213,7 @@ with st.container():
                                             st.markdown(f'''
                                                 <div class="verdict-box">
                                                     <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 20px;">
-                                                        <img src="data:image/png;base64,{LOGO_BASE64}" style="width: 80px; border-radius: 12px; box-shadow: 0 0 20px rgba(99,102,241,0.2);">
+                                                        <img src="data:image/png;base64,{LOGO_BASE64}" alt="VerifyAI Logo" style="width: 80px; border-radius: 12px; box-shadow: 0 0 20px rgba(99,102,241,0.2);">
                                                         <div>
                                                             <p style="text-transform: uppercase; letter-spacing: 2px; color: #9090b0; margin: 0; font-size: 12px; font-weight: 700;">Final Determination</p>
                                                             <h2 class="verdict-{verdict}">{verdict}</h2>
